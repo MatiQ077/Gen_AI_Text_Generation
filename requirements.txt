@@ -3,3 +3,5 @@ beautifulsoup4
 pandas
 tqdm
 lxml
+tensorflow>=2.16
+pymupdf

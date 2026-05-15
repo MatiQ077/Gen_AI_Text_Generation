@@ -10,12 +10,12 @@ from tqdm import tqdm
 
 BASE_URL = "https://en.wikivoyage.org/wiki"
 OUTPUT_PATH = Path("data/raw/wikivoyage_pages.jsonl")
-CITY_LIST_PATH = Path("data/city_list.csv")
+CITY_LIST_PATH = Path("data/city_list_500.csv")
 
 SECTION_CATEGORY = {
-    "Understand": "city_description",
+    "Understand": "city_description",    
     "Get in": "transportation",
-    "Get around": "transportation",
+    "Get around": "transportation",    
     "See": "attractions",
     "Do": "activities",
     "Buy": "shopping",
