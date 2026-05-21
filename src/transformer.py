@@ -6,10 +6,10 @@ from tensorflow import keras
 from tensorflow.keras import layers, ops
 
 VOCAB_SIZE = 20000
-MAXLEN = 80
-EMBED_DIM = 256
+MAXLEN = 256
+EMBED_DIM = 512
 NUM_HEADS = 2
-FEED_FORWARD_DIM = 256
+FEED_FORWARD_DIM = 512
 
 class TokenAndPositionEmbedding(layers.Layer):
     

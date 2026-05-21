@@ -12,8 +12,11 @@ DEFAULTS = {
         "input": Path("data/raw/wikivoyage_itineraries.jsonl"),
         "output": Path("data/processed/itinerary_corpus.jsonl"),
     },
+    "pdf": {
+    "input": Path("data/raw/pdf_guides.jsonl"),
+    "output": Path("data/processed/pdf_corpus.jsonl"),
+},
 }
-
 
 def split_text_into_chunks(text: str, max_words: int = 180) -> List[str]:
     words = text.split()
@@ -28,7 +31,6 @@ def split_text_into_chunks(text: str, max_words: int = 180) -> List[str]:
 
     return chunks
 
-
 def make_training_prompt(record: Dict, chunk: str) -> str:
     return (
         f"Country: {record['country']}\n"
@@ -37,7 +39,6 @@ def make_training_prompt(record: Dict, chunk: str) -> str:
         f"Section: {record['section']}\n"
         f"Travel information: {chunk}"
     )
-
 
 def build_processed_record(
     mode: str, record: Dict, chunk_id: int, chunk: str
@@ -54,24 +55,37 @@ def build_processed_record(
             "text": chunk,
             "training_text": make_training_prompt(record, chunk),
         }
-
-    # itineraries: metadata + chunk text only (no training_text)
-    return {
+    elif mode == "itineraries":
+        # itineraries: metadata + chunk text only (no training_text)
+        return {
+            "source": record["source"],
+            "url": record["url"],
+            "itinerary_slug": record["itinerary_slug"],
+            "section": record["section"],
+            "category": record["category"],
+            "chunk_id": chunk_id,
+            "text": chunk,
+        }
+    elif mode == "pdf":
+        # pdf: already chunked by get_pdf_data.py — just format with training_text
+        return {
         "source": record["source"],
-        "url": record["url"],
-        "itinerary_slug": record["itinerary_slug"],
-        "section": record["section"],
+        "source_name": record["source_name"],
+        "country": record["country"],
+        "city": record["city"],
+        "section": record["section"],       # "page_2", "page_3", etc.
         "category": record["category"],
-        "chunk_id": chunk_id,
+        "page_number": record["page_number"],
+        "chunk_id": record["chunk_id"],
         "text": chunk,
-    }
-
+        "training_text": make_training_prompt(record, chunk),  # existing function, no changes
+        }
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Chunk Wikivoyage JSONL for training or downstream use.")
     parser.add_argument(
         "--mode",
-        choices=("city", "itineraries"),
+        choices=("city", "itineraries", "pdf"),
         required=True,
         help="city: wikivoyage_pages with training_text; itineraries: wikivoyage_itineraries, text chunks only.",
     )
@@ -116,7 +130,6 @@ def main() -> None:
             output_file.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
     print(f"Saved {len(output_records)} processed chunks to {processed_path}")
-
 
 if __name__ == "__main__":
     main()
