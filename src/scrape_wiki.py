@@ -1,3 +1,4 @@
+import argparse
 import json
 import time
 from pathlib import Path
@@ -26,7 +27,6 @@ SECTION_CATEGORY = {
     "Connect": "practical_info",
 }
 
-#Download full HTML of a page
 def fetch_page(url: str, timeout: int = 20) -> Optional[str]:
     
     #Create a HTTP header, so the website knows what the scrapped data is being used for
@@ -134,10 +134,23 @@ def append_jsonl(records: List[Dict], output_path: Path) -> None:
             file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 def main() -> None:
-    cities_df = pd.read_csv(CITY_LIST_PATH)
+    parser = argparse.ArgumentParser(description="Scrape city pages from WikiVoyage.")
+    parser.add_argument(
+        "--city-list", type=Path, default=CITY_LIST_PATH,
+        help="CSV with columns: country,city,wikivoyage_slug (default: city_list_500.csv)",
+    )
+    parser.add_argument(
+        "--output", type=Path, default=OUTPUT_PATH,
+        help="JSONL output path. Existing file is overwritten.",
+    )
+    parser.add_argument("--sleep", type=float, default=1.0,
+        help="Seconds between requests.")
+    args = parser.parse_args()
 
-    if OUTPUT_PATH.exists():
-        OUTPUT_PATH.unlink()
+    cities_df = pd.read_csv(args.city_list)
+
+    if args.output.exists():
+        args.output.unlink()
 
     total_records = 0
 
@@ -147,13 +160,13 @@ def main() -> None:
         slug = row["wikivoyage_slug"]
 
         records = scrape_city(country, city, slug)
-        append_jsonl(records, OUTPUT_PATH)
+        append_jsonl(records, args.output)
 
         total_records += len(records)
 
-        time.sleep(1)
+        time.sleep(args.sleep)
 
-    print(f"Done. Saved {total_records} records to {OUTPUT_PATH}")
+    print(f"Done. Saved {total_records} records to {args.output}")
 
 if __name__ == "__main__":
     main()

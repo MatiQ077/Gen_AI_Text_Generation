@@ -29,6 +29,8 @@ from transformer import (
 TRAVEL_CORPUS = Path("data/processed/travel_corpus.jsonl")
 ITINERARY_CORPUS = Path("data/processed/itinerary_corpus.jsonl")
 PDF_CORPUS = Path("data/processed/pdf_corpus.jsonl")
+SE_CORPUS = Path("data/raw/stackexchange_itineraries.jsonl")
+EXTRA_CITY_CORPUS = Path("data/processed/wikivoyage_extra_corpus.jsonl")
 VAL_FRACTION = 0.05
 BATCH_SIZE = 32
 EPOCHS = 20
@@ -40,14 +42,9 @@ VOCAB_PATH = TOKENIZER_DIR / "vocabulary.txt"
 RANDOM_SEED = 42
 
 def record_to_lm_string(rec: dict) -> str:
-    if rec.get("training_text"):
-        return rec["training_text"]
-    return (
-        f"Itinerary: {rec.get('itinerary_slug', '')}\n"
-        f"Section: {rec.get('section', '')}\n"
-        f"Category: {rec.get('category', '')}\n"
-        f"Travel information: {rec['text']}"
-    )
+    if not rec.get("training_text"):
+        raise ValueError(f"Record missing training_text field: {list(rec.keys())}")
+    return rec["training_text"]
 
 def load_jsonl(path: Path) -> List[dict]:
     records = []
@@ -60,13 +57,16 @@ def load_jsonl(path: Path) -> List[dict]:
 
 def load_corpus_strings() -> List[str]:
     strings: List[str] = []
-    for path in (TRAVEL_CORPUS, ITINERARY_CORPUS, PDF_CORPUS):
+    for path in (TRAVEL_CORPUS, ITINERARY_CORPUS, PDF_CORPUS, SE_CORPUS, EXTRA_CITY_CORPUS):
         if not path.exists():
-            raise FileNotFoundError(f"Missing corpus file: {path}")
+            print(f"[WARN] Corpus not found, skipping: {path}")
+            continue
+        before = len(strings)
         for rec in load_jsonl(path):
             text = record_to_lm_string(rec).strip()
             if text:
                 strings.append(text)
+        print(f"  Loaded {len(strings) - before} examples from {path.name}")
     return strings
 
 def train_val_split(

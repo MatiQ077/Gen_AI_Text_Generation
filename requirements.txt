@@ -8,3 +8,8 @@ pymupdf
 sentence-transformers
 faiss-cpu
 gradio
+transformers>=4.40.0
+torch>=2.0.0
+accelerate>=1.1.0
+anthropic>=0.40.0
+python-dotenv>=1.0.0

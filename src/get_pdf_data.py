@@ -13,7 +13,7 @@ import requests
 from tqdm import tqdm
 
 
-DEFAULT_INPUT_PATH = Path("pdf_guides.csv")
+DEFAULT_INPUT_PATH = Path("data/pdf_guides.csv")
 DEFAULT_OUTPUT_PATH = Path("data/raw/pdf_guides.jsonl")
 DEFAULT_FAILURES_PATH = Path("data/raw/pdf_extraction_failures.csv")
 DEFAULT_KEEP_PDF_DIR = Path("data/raw/pdf_guides")

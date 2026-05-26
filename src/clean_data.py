@@ -13,9 +13,9 @@ DEFAULTS = {
         "output": Path("data/processed/itinerary_corpus.jsonl"),
     },
     "pdf": {
-    "input": Path("data/raw/pdf_guides.jsonl"),
-    "output": Path("data/processed/pdf_corpus.jsonl"),
-},
+        "input": Path("data/raw/pdf_guides.jsonl"),
+        "output": Path("data/processed/pdf_corpus.jsonl"),
+    },
 }
 
 def split_text_into_chunks(text: str, max_words: int = 180) -> List[str]:
@@ -56,7 +56,6 @@ def build_processed_record(
             "training_text": make_training_prompt(record, chunk),
         }
     elif mode == "itineraries":
-        # itineraries: metadata + chunk text only (no training_text)
         return {
             "source": record["source"],
             "url": record["url"],
@@ -65,20 +64,27 @@ def build_processed_record(
             "category": record["category"],
             "chunk_id": chunk_id,
             "text": chunk,
+            "training_text": (
+                f"Country: \n"
+                f"City: \n"
+                f"Category: {record['category']}\n"
+                f"Section: {record['section']}\n"
+                f"Travel information: {chunk}"
+            ),
         }
     elif mode == "pdf":
-        # pdf: already chunked by get_pdf_data.py — just format with training_text
+        
         return {
-        "source": record["source"],
-        "source_name": record["source_name"],
-        "country": record["country"],
-        "city": record["city"],
-        "section": record["section"],       # "page_2", "page_3", etc.
-        "category": record["category"],
-        "page_number": record["page_number"],
-        "chunk_id": record["chunk_id"],
-        "text": chunk,
-        "training_text": make_training_prompt(record, chunk),  # existing function, no changes
+            "source": record["source"],
+            "source_name": record["source_name"],
+            "country": record["country"],
+            "city": record["city"],
+            "section": record["section"],
+            "category": record["category"],
+            "page_number": record["page_number"],
+            "chunk_id": record["chunk_id"],
+            "text": chunk,
+            "training_text": make_training_prompt(record, chunk),
         }
 
 def main() -> None:
