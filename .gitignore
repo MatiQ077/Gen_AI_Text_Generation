@@ -11,6 +11,7 @@ env/
 .env
 .env.*
 !.env.example
+.env.example
 
 # Distribution / packaging
 .Python
@@ -71,3 +72,4 @@ data/processed/*.jsonl
 # Root-level downloaded/generated data files
 Guides.csv
 pdf_guides.csv
+CLAUDE.md

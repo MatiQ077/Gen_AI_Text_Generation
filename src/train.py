@@ -1,3 +1,30 @@
+"""
+train.py — Train the decoder-only Transformer on the travel text corpora.
+
+Loads training_text strings from up to five JSONL corpora, builds a Keras
+TextVectorization tokenizer, constructs a tf.data pipeline with next-token
+prediction targets, and trains the model defined in transformer.py.
+
+Corpora loaded (missing files are skipped with a warning):
+    data/processed/travel_corpus.jsonl          (Wikivoyage city guides)
+    data/processed/itinerary_corpus.jsonl        (Wikivoyage itinerary articles)
+    data/processed/pdf_corpus.jsonl             (PDF-extracted travel guides)
+    data/raw/stackexchange_itineraries.jsonl    (Travel SE Q&A)
+    data/processed/wikivoyage_extra_corpus.jsonl (supplementary city pages)
+
+Training objective: next-token prediction with a masked cross-entropy loss
+    that ignores padding tokens (id 0) so they don't contribute to the gradient.
+
+Outputs:
+    checkpoints/best.weights.h5       best validation-loss weights
+    artifacts/tokenizer/vocabulary.txt one token per line, for infer.py
+
+Usage:
+    python src/train.py --smoke      # 32 samples, 3 epochs (sanity check)
+    python src/train.py              # full training
+    python src/train.py --epochs 30 --batch-size 64
+"""
+
 import argparse
 import json
 import os
@@ -26,27 +53,30 @@ from transformer import (
     create_model,
 )
 
-TRAVEL_CORPUS = Path("data/processed/travel_corpus.jsonl")
-ITINERARY_CORPUS = Path("data/processed/itinerary_corpus.jsonl")
-PDF_CORPUS = Path("data/processed/pdf_corpus.jsonl")
-SE_CORPUS = Path("data/raw/stackexchange_itineraries.jsonl")
-EXTRA_CITY_CORPUS = Path("data/processed/wikivoyage_extra_corpus.jsonl")
-VAL_FRACTION = 0.05
-BATCH_SIZE = 32
-EPOCHS = 20
-LEARNING_RATE = 5e-4
-DROPOUT_RATE = 0.3
-CHECKPOINT_DIR = Path("checkpoints")
-TOKENIZER_DIR = Path("artifacts/tokenizer")
-VOCAB_PATH = TOKENIZER_DIR / "vocabulary.txt"
-RANDOM_SEED = 42
+TRAVEL_CORPUS      = Path("data/processed/travel_corpus.jsonl")
+ITINERARY_CORPUS   = Path("data/processed/itinerary_corpus.jsonl")
+PDF_CORPUS         = Path("data/processed/pdf_corpus.jsonl")
+SE_CORPUS          = Path("data/raw/stackexchange_itineraries.jsonl")
+EXTRA_CITY_CORPUS  = Path("data/processed/wikivoyage_extra_corpus.jsonl")
 
-def record_to_lm_string(rec: dict) -> str:
+VAL_FRACTION   = 0.05
+BATCH_SIZE     = 32
+EPOCHS         = 20
+LEARNING_RATE  = 5e-4
+DROPOUT_RATE   = 0.3
+CHECKPOINT_DIR = Path("checkpoints")
+TOKENIZER_DIR  = Path("artifacts/tokenizer")
+VOCAB_PATH     = TOKENIZER_DIR / "vocabulary.txt"
+RANDOM_SEED    = 42
+
+
+# Extract training_text from corpus record 
+def record_to_lm_string(rec: dict) -> str:    
     if not rec.get("training_text"):
         raise ValueError(f"Record missing training_text field: {list(rec.keys())}")
     return rec["training_text"]
 
-def load_jsonl(path: Path) -> List[dict]:
+def load_jsonl(path: Path) -> List[dict]:    
     records = []
     with path.open("r", encoding="utf-8") as file:
         for line in file:
@@ -55,7 +85,7 @@ def load_jsonl(path: Path) -> List[dict]:
                 records.append(json.loads(line))
     return records
 
-def load_corpus_strings() -> List[str]:
+def load_corpus_strings() -> List[str]:    
     strings: List[str] = []
     for path in (TRAVEL_CORPUS, ITINERARY_CORPUS, PDF_CORPUS, SE_CORPUS, EXTRA_CITY_CORPUS):
         if not path.exists():
@@ -72,15 +102,16 @@ def load_corpus_strings() -> List[str]:
 def train_val_split(
     strings: List[str], val_fraction: float, seed: int
 ) -> Tuple[List[str], List[str]]:
+    
     rng = random.Random(seed)
     shuffled = strings.copy()
     rng.shuffle(shuffled)
     val_size = max(1, int(len(shuffled) * val_fraction))
-    val_strings = shuffled[:val_size]
-    train_strings = shuffled[val_size:]
-    return train_strings, val_strings
+    return shuffled[val_size:], shuffled[:val_size]
 
+# Create and adapt a Text Vectorization layer on the training strings
 def build_vectorizer(train_strings: List[str]) -> layers.TextVectorization:
+    
     vectorizer = layers.TextVectorization(
         max_tokens=VOCAB_SIZE,
         output_mode="int",
@@ -91,7 +122,13 @@ def build_vectorizer(train_strings: List[str]) -> layers.TextVectorization:
     vectorizer.adapt(train_strings)
     return vectorizer
 
+# Save the vocabulary to a text file
 def save_vocabulary(vectorizer: layers.TextVectorization, path: Path) -> None:
+    """Save the vocabulary to a text file, one token per line.
+
+    infer.py reloads the vocabulary with set_vocabulary() rather than calling
+    adapt() again, which would overwrite it with different text.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     vocab = vectorizer.get_vocabulary()
     path.write_text("\n".join(vocab), encoding="utf-8")
@@ -102,11 +139,10 @@ def make_lm_dataset(
     batch_size: int,
     shuffle: bool,
 ) -> tf.data.Dataset:
+    
     def to_xy(batch_strings: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
         tokens = vectorizer(batch_strings)
-        x = tokens[:, :-1]
-        y = tokens[:, 1:]
-        return x, y
+        return tokens[:, :-1], tokens[:, 1:]
 
     ds = tf.data.Dataset.from_tensor_slices(strings)
     if shuffle:
@@ -115,24 +151,22 @@ def make_lm_dataset(
     ds = ds.map(to_xy, num_parallel_calls=tf.data.AUTOTUNE)
     return ds.prefetch(tf.data.AUTOTUNE)
 
+# Cross entropy loss
 def masked_sparse_ce(y_true, y_pred):
-    """Cross-entropy ignoring padded positions (label id 0)."""
-    mask = tf.cast(tf.not_equal(y_true, 0), tf.float32)
-    loss_fn = keras.losses.SparseCategoricalCrossentropy(
-        from_logits=True, reduction="none"
-    )
+   
+    mask     = tf.cast(tf.not_equal(y_true, 0), tf.float32)
+    loss_fn  = keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction="none")
     per_token = loss_fn(y_true, y_pred)
-    weighted = per_token * mask
+    weighted  = per_token * mask
     return tf.reduce_sum(weighted) / tf.maximum(tf.reduce_sum(mask), 1.0)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train decoder-only travel LM.")
     parser.add_argument(
-        "--smoke",
-        action="store_true",
+        "--smoke", action="store_true",
         help="Train on 32 samples for 3 epochs (sanity check).",
     )
-    parser.add_argument("--epochs", type=int, default=EPOCHS)
+    parser.add_argument("--epochs",     type=int, default=EPOCHS)
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     args = parser.parse_args()
 
@@ -148,8 +182,8 @@ def main() -> None:
 
     if args.smoke:
         train_strings = train_strings[:32]
-        val_strings = val_strings[:8]
-        args.epochs = 3
+        val_strings   = val_strings[:8]
+        args.epochs   = 3
         print("Smoke mode: using small subset.")
 
     print("Building tokenizer...")
@@ -157,12 +191,8 @@ def main() -> None:
     save_vocabulary(vectorizer, VOCAB_PATH)
     print(f"Saved vocabulary ({len(vectorizer.get_vocabulary())} tokens) to {VOCAB_PATH}")
 
-    train_ds = make_lm_dataset(
-        train_strings, vectorizer, args.batch_size, shuffle=True
-    )
-    val_ds = make_lm_dataset(
-        val_strings, vectorizer, args.batch_size, shuffle=False
-    )
+    train_ds = make_lm_dataset(train_strings, vectorizer, args.batch_size, shuffle=True)
+    val_ds   = make_lm_dataset(val_strings,   vectorizer, args.batch_size, shuffle=False)
 
     seq_len = MAXLEN - 1
     print(f"Sequence length (tokens): {seq_len}, MAXLEN: {MAXLEN}")
@@ -176,7 +206,6 @@ def main() -> None:
         num_layers=2,
         dropout=DROPOUT_RATE,
     )
-
     model.compile(
         optimizer=keras.optimizers.AdamW(learning_rate=LEARNING_RATE, weight_decay=1e-4),
         loss=masked_sparse_ce,
@@ -211,7 +240,7 @@ def main() -> None:
     model.save_weights(checkpoint_path)
     print(f"Best weights saved to {checkpoint_path}")
     print(f"Final train loss: {history.history['loss'][-1]:.4f}")
-    print(f"Final val loss: {history.history['val_loss'][-1]:.4f}")
+    print(f"Final val loss:   {history.history['val_loss'][-1]:.4f}")
 
 if __name__ == "__main__":
     main()

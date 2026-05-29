@@ -1,3 +1,21 @@
+"""
+build_index.py — Offline FAISS index builder for the RAG retrieval pipeline.
+
+This script is run once after corpus preparation to produce two artifacts:
+  - artifacts/rag_index.faiss      : FAISS IndexFlatL2 over all chunk embeddings
+  - artifacts/rag_metadata.jsonl   : parallel metadata (text + structured fields)
+    
+At inference time, app.py loads both artifacts and performs nearest-neighbour
+search to retrieve relevant chunks before itinerary generation.
+
+Usage:
+    python src/build_index.py
+
+Prerequisites:
+    Run the corpus-building scripts first so the three JSONL files exist under
+    data/processed/.  All paths are relative to the project root.
+"""
+
 import json
 from pathlib import Path
 
@@ -6,16 +24,17 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
+
 CORPORA = [
     Path("data/processed/travel_corpus.jsonl"),
     Path("data/processed/itinerary_corpus.jsonl"),
     Path("data/processed/pdf_corpus.jsonl"),
 ]
 INDEX_PATH = Path("artifacts/rag_index.faiss")
-META_PATH = Path("artifacts/rag_metadata.jsonl")
+META_PATH  = Path("artifacts/rag_metadata.jsonl")
 
-
-def load_chunks(paths):
+# Load all Jsons into a flat list of chunks
+def load_chunks(paths: list[Path]) -> list[dict]:    
     chunks = []
     for path in paths:
         with path.open(encoding="utf-8") as f:
@@ -25,12 +44,14 @@ def load_chunks(paths):
                     chunks.append(json.loads(line))
     return chunks
 
-
-def main():
+#
+def main() -> None:
+    
     print("Loading chunks...")
     chunks = load_chunks(CORPORA)
     print(f"Total chunks: {len(chunks)}")
 
+    # Embed with all-MiniLM-L6-v2
     model = SentenceTransformer("all-MiniLM-L6-v2")
     texts = [c["text"] for c in chunks]
 
@@ -40,27 +61,29 @@ def main():
     )
     embeddings = embeddings.astype("float32")
 
+    # Build FAISS flat index
     print("Building FAISS index...")
     dim = embeddings.shape[1]
     index = faiss.IndexFlatL2(dim)
     index.add(embeddings)
 
+    # Persist index
     INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
     faiss.write_index(index, str(INDEX_PATH))
     print(f"Saved index ({index.ntotal} vectors) → {INDEX_PATH}")
 
+    # Persist metadata 
     with META_PATH.open("w", encoding="utf-8") as f:
         for chunk in chunks:
             meta = {
-                "text": chunk["text"],
-                "country": chunk.get("country", ""),
-                "city": chunk.get("city", ""),
+                "text":     chunk["text"],
+                "country":  chunk.get("country", ""),
+                "city":     chunk.get("city", ""),
                 "category": chunk.get("category", ""),
-                "section": chunk.get("section", ""),
+                "section":  chunk.get("section", ""),
             }
             f.write(json.dumps(meta, ensure_ascii=False) + "\n")
     print(f"Saved metadata → {META_PATH}")
-
 
 if __name__ == "__main__":
     main()

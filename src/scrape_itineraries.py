@@ -1,3 +1,20 @@
+"""
+scrape_itineraries.py — Collect Wikivoyage itinerary articles and save as JSONL.
+
+Two-phase scraper:
+    Phase 1 — Discovery: fetch seed hub pages ("Itineraries", "Itineraries_index")
+              and extract all outbound Wikivoyage article links.
+    Phase 2 — Scraping:  fetch each discovered article, extract sections using
+              the same parser as scrape_wiki.py, and write one record per section.
+
+Output schema per JSONL record:
+    source, url, itinerary_slug, section, category, text
+    
+Usage:
+    python src/scrape_itineraries.py
+    python src/scrape_itineraries.py --seeds Itineraries Itineraries_index --sleep 1.5
+"""
+
 import argparse
 import sys
 import time
@@ -21,49 +38,37 @@ from scrape_wiki import (
 )
 
 DEFAULT_SEED_PAGES = ("Itineraries", "Itineraries_index")
-DEFAULT_OUTPUT = Path("data/raw/wikivoyage_itineraries.jsonl")
+DEFAULT_OUTPUT     = Path("data/raw/wikivoyage_itineraries.jsonl")
 
-META_TITLE_PREFIXES = (
-    "Wikivoyage:",
-    "Help:",
-    "Template:",
-    "Category:",
-    "File:",
-    "Special:",
-    "MediaWiki:",
-    "Module:",
-    "User:",
-)
+META_TITLE_PREFIXES = ("Wikivoyage:", "Help:", "Template:", "Category:", "File:", "Special:", "MediaWiki:", "Module:", "User:")
 
 def href_to_article_slug(href: str) -> Optional[str]:
     href = href.strip()
     if not href or href.startswith("#"):
         return None
 
-    full = urljoin("https://en.wikivoyage.org/", href)
+    full   = urljoin("https://en.wikivoyage.org/", href)
     parsed = urlparse(full)
+
     if "wikivoyage.org" not in parsed.netloc.lower():
         return None
 
     if parsed.path.startswith("/wiki/"):
-        slug = unquote(parsed.path[len("/wiki/") :].split("#")[0])
-        if not slug:
-            return None
-        return slug.replace(" ", "_")
+        slug = unquote(parsed.path[len("/wiki/"):].split("#")[0])
+        return slug.replace(" ", "_") if slug else None
 
     if "title" in parse_qs(parsed.query):
         slug = unquote(parse_qs(parsed.query)["title"][0]).split("#")[0]
-        if not slug:
-            return None
-        return slug.replace(" ", "_")
+        return slug.replace(" ", "_") if slug else None
 
     return None
 
-def is_meta_slug(slug: str) -> bool:
+def is_meta_slug(slug: str) -> bool:    
     return any(slug.startswith(p) for p in META_TITLE_PREFIXES)
 
 def extract_article_slugs_from_html(html: str) -> Set[str]:
-    soup = BeautifulSoup(html, "html.parser")
+    
+    soup    = BeautifulSoup(html, "html.parser")
     content = soup.find("div", {"id": "mw-content-text"})
     if content is None:
         return set()
@@ -78,7 +83,7 @@ def extract_article_slugs_from_html(html: str) -> Set[str]:
 def collect_slugs_from_seed_pages(seed_slugs: List[str]) -> Set[str]:
     collected: Set[str] = set()
     for page_slug in seed_slugs:
-        url = f"{BASE_URL}/{page_slug}"
+        url  = f"{BASE_URL}/{page_slug}"
         html = fetch_page(url)
         if html is None:
             continue
@@ -87,8 +92,8 @@ def collect_slugs_from_seed_pages(seed_slugs: List[str]) -> Set[str]:
     return collected
 
 def scrape_itinerary_article(slug: str) -> List[Dict]:
-    url = f"{BASE_URL}/{slug}"
-    html = fetch_page(url)
+    url      = f"{BASE_URL}/{slug}"
+    html     = fetch_page(url)
     if html is None:
         return []
 
@@ -98,22 +103,19 @@ def scrape_itinerary_article(slug: str) -> List[Dict]:
     for section_name, section_text in sections.items():
         if len(section_text) < 50:
             continue
-        records.append(
-            {
-                "source": "wikivoyage",
-                "url": url,
-                "itinerary_slug": slug,
-                "section": section_name,
-                "category": SECTION_CATEGORY.get(section_name, "other"),
-                "text": section_text,
-            }
-        )
+        records.append({
+            "source":          "wikivoyage",
+            "url":             url,
+            "itinerary_slug":  slug,
+            "section":         section_name,
+            "category":        SECTION_CATEGORY.get(section_name, "other"),
+            "text":            section_text,
+        })
     return records
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Collect itinerary article links from Wikivoyage hub pages, then scrape sections."
-    )
+    
+    parser = argparse.ArgumentParser(description="Collect itinerary article links from Wikivoyage hub pages, then scrape sections.")
     parser.add_argument(
         "--seeds",
         nargs="+",
@@ -121,15 +123,11 @@ def main() -> None:
         help="Wikivoyage article slugs to scan for outbound links (default: Itineraries Itineraries_index).",
     )
     parser.add_argument(
-        "--output",
-        type=Path,
-        default=DEFAULT_OUTPUT,
+        "--output", type=Path, default=DEFAULT_OUTPUT,
         help="JSONL output path.",
     )
     parser.add_argument(
-        "--sleep",
-        type=float,
-        default=1.0,
+        "--sleep", type=float, default=1.0,
         help="Seconds to sleep between article requests.",
     )
     args = parser.parse_args()
